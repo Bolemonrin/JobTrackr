@@ -242,10 +242,16 @@ if (url.hostname.includes('glassdoor.com')) {
     })
 } else {
     const scriptTags = document.querySelectorAll(
-    'script[type="application/ld+json"]',
-)
+        'script[type="application/ld+json"]',
+    )
     console.log('Parsing JSON-LD for job details...')
-    const details = Array.from(scriptTags).map((s) => JSON.parse(s.innerHTML))
+    const details = Array.from(scriptTags).flatMap((s) => {
+        try {
+            return [JSON.parse(s.innerHTML)]
+        } catch {
+            return []
+        }
+    })
     const jobDetails = details.find((d) => d['@type'] === 'JobPosting')
 
     if (jobDetails) {
@@ -295,7 +301,7 @@ if (url.hostname.includes('glassdoor.com')) {
             companyName: jobDetails.hiringOrganization?.name || '',
             location,
             salary,
-            appliedFromName: jobDetails.hiringOrganization?.name || '',
+            appliedFromName: new URL(window.location.href).hostname || '',
             appliedFromUrl: jobDetails.url || window.location.href,
         }
 
