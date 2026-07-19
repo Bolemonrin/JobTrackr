@@ -38,6 +38,91 @@ function findJobPosting(parsed: unknown): JsonLdJobPosting | null {
     return nodes.find(isJobPosting) ?? null
 }
 
+function extractFromJsonLd(sourceName: AppliedFrom = 'Other'): boolean {
+    const scriptTags = document.querySelectorAll(
+        'script[type="application/ld+json"]',
+    )
+
+    const details = Array.from(scriptTags).flatMap((s) => {
+        try {
+            return [JSON.parse(s.innerHTML)]
+        } catch {
+            return []
+        }
+    })
+
+    let jobDetails: JsonLdJobPosting | null = null
+    for (const parsed of details) {
+        const found = findJobPosting(parsed)
+        if (found) {
+            jobDetails = found
+            break
+        }
+    }
+
+    if (!jobDetails) return false // no JobPosting on the page
+
+    // Location: jobLocation may be a single object or an array
+    const locationSource = Array.isArray(jobDetails.jobLocation)
+        ? jobDetails.jobLocation[0]
+        : jobDetails.jobLocation
+    const locationCity = locationSource?.address?.addressLocality ?? ''
+    const locationState = locationSource?.address?.addressRegion ?? ''
+    const location = [locationCity, locationState].filter(Boolean).join(', ')
+
+    // Salary from baseSalary.value (single or range), else regex the description
+    const qv = jobDetails.baseSalary?.value
+    let salary = ''
+    if (qv?.value) {
+        salary = `$${qv.value}${qv.unitText ? ` per ${qv.unitText.toLowerCase()}` : ''}`
+    } else if (qv?.minValue && qv?.maxValue) {
+        salary = `$${qv.minValue} - $${qv.maxValue}${qv.unitText ? ` per ${qv.unitText.toLowerCase()}` : ''}`
+    } else {
+        const patterns = [
+            /\$\d{1,3}(,\d{3})*(\.\d+)?\s*-\s*\$\d{1,3}(,\d{3})*(\.\d+)?/,
+            /\$\d{1,3}(,\d{3})*(\.\d+)?\s*per\s*(year|month|week|day|hour)/i,
+            /\$\d{1,3}(,\d{3})*(\.\d+)?(\/hour)?/,
+            /\b\d{1,3}(,\d{3})*(\.\d+)?\s*(USD|EUR|GBP|CAD|AUD)\b/i,
+        ]
+        const text =
+            new DOMParser().parseFromString(
+                jobDetails.description ?? '',
+                'text/html',
+            ).body.textContent ?? ''
+        for (const pattern of patterns) {
+            const match = text.match(pattern)
+            if (match) {
+                salary = match[0]
+                break
+            }
+        }
+    }
+
+    const jobId =
+        jobDetails.url?.match(/\/jobs\/view\/(\d+)/)?.[1] ??
+        new URL(window.location.href).searchParams.get('currentJobId') ??
+        undefined
+
+    const application: Application = {
+        id: crypto.randomUUID(),
+        jobId,
+        jobTitle: jobDetails.title ?? '',
+        companyName: jobDetails.hiringOrganization?.name ?? '',
+        location,
+        salary,
+        appliedFromName: sourceName,
+        appliedFromUrl: jobDetails.url ?? window.location.href,
+        dateApplied: new Date().toISOString(),
+        jobStatus: 'applied',
+        syncStatus: 'pending',
+    }
+
+    chrome.storage.local.set({ detectedJob: application }, () => {
+        console.log('JobTrackr: Saved detected job from JSON-LD:', application)
+    })
+    return true
+}
+
 if (url.hostname.includes('glassdoor.com')) {
     console.log('Logging from content script on Glassdoor')
     injectScript()
@@ -140,185 +225,104 @@ if (url.hostname.includes('glassdoor.com')) {
 } else if (url.hostname.includes('linkedin.com')) {
     console.log('Logging from content script on LinkedIn')
 
-    let lastSavedJobId: string | null = null
-    let retryTimer: number | null = null
+    // for if linkedin is opened in regualr view
+    if (!document.querySelector('[data-sdui-screen*="JobDetails"]')) {
+        extractFromJsonLd('LinkedIn')
+    } else {
+        let lastSavedJobId: string | null = null
+        let retryTimer: number | null = null
 
-    // LinkedIn puts the selected job's id in the page URL as ?currentJobId=
-    const getJobId = (): string | null =>
-        new URLSearchParams(window.location.search).get('currentJobId')
+        // Confirmed pane root: the SDUI job-details screen. Scoping everything to
+        // this keeps the left-list job cards out of the query.
+        const getPane = (): Element | null =>
+            document.querySelector('[data-sdui-screen*="JobDetails"]')
 
-    // First matching selector that actually has text wins.
-    // Multiple fallbacks because LinkedIn reskins these class names often.
-    const readText = (selectors: string[]): string => {
-        for (const sel of selectors) {
-            const el = document.querySelector(sel) as HTMLElement | null
-            const t = el?.innerText?.trim()
-            if (t) return t
-        }
-        return ''
-    }
+        const extractJob = (): Application | null => {
+            const pane = getPane()
+            if (!pane) return null // pane not rendered yet → caller retries
 
-    const extractJob = (jobId: string): Application | null => {
-        const jobTitle = readText([
-            '.job-details-jobs-unified-top-card__job-title h1',
-            '.job-details-jobs-unified-top-card__job-title',
-            'h1.t-24',
-        ])
+            // Title + ID from the same /jobs/view/ link (first match in pane)
+            const titleLink = pane.querySelector('a[href*="/jobs/view/"]')
+            const jobTitle =
+                (titleLink as HTMLElement | null)?.innerText?.trim() ?? ''
+            const jobId =
+                titleLink
+                    ?.getAttribute('href')
+                    ?.match(/\/jobs\/view\/(\d+)/)?.[1] ?? null
 
-        const companyName = readText([
-            '.job-details-jobs-unified-top-card__company-name a',
-            '.job-details-jobs-unified-top-card__company-name',
-        ])
+            // Company is a SEPARATE /company/ link (confirmed returns "BJAK")
+            const companyLink = pane.querySelector('a[href*="/company/"]')
+            const companyName =
+                (companyLink as HTMLElement | null)?.innerText?.trim() ?? ''
 
-        // Core fields not rendered yet — signal the caller to retry
-        if (!jobTitle || !companyName) return null
+            // Core fields missing → not rendered yet, signal a retry
+            if (!jobId || !jobTitle || !companyName) return null
 
-        const location = readText([
-            '.job-details-jobs-unified-top-card__primary-description-container span.tvm__text',
-            '.job-details-jobs-unified-top-card__primary-description-container',
-        ])
+            // Location: first segment of "United States · 1 week ago · ..."
+            const metaText =
+                (
+                    pane.querySelector('span._2da46c2f') as HTMLElement | null
+                )?.innerText?.trim() ?? ''
+            const location = metaText.split('·')[0]?.trim() ?? ''
 
-        const salary = readText([
-            '.job-details-jobs-unified-top-card__job-insight span',
-            '.job-details-fit-level-preferences span strong',
-        ])
-
-        return {
-            id: crypto.randomUUID(),
-            jobId,
-            jobTitle,
-            companyName,
-            location,
-            salary,
-            appliedFromName: 'LinkedIn',
-            appliedFromUrl: `https://www.linkedin.com/jobs/view/${jobId}`,
-            dateApplied: new Date().toISOString(),
-            jobStatus: 'applied',
-            syncStatus: 'pending',
-        }
-    }
-
-    // Try to extract; if the pane hasn't rendered, retry a few times then give up
-    const attemptExtract = (tries = 6) => {
-        const jobId = getJobId()
-        if (!jobId || jobId === lastSavedJobId) return
-
-        const job = extractJob(jobId)
-        if (!job) {
-            if (tries > 0) {
-                retryTimer = window.setTimeout(
-                    () => attemptExtract(tries - 1),
-                    400,
-                )
+            return {
+                id: crypto.randomUUID(),
+                jobId,
+                jobTitle,
+                companyName,
+                location,
+                salary: '', // not present in this layout
+                appliedFromName: 'LinkedIn',
+                appliedFromUrl: `https://www.linkedin.com/jobs/view/${jobId}`,
+                dateApplied: new Date().toISOString(),
+                jobStatus: 'applied',
+                syncStatus: 'pending',
             }
-            return
         }
 
-        lastSavedJobId = jobId
-        chrome.storage.local.set({ detectedJob: job }, () => {
-            console.log('JobTrackr: Saved detected LinkedIn job:', job)
-        })
-    }
+        // Try to extract; retry a few times if the pane hasn't rendered, then stop.
+        const attemptExtract = (tries = 6) => {
+            const job = extractJob()
 
-    const scheduleExtract = () => {
-        if (retryTimer) window.clearTimeout(retryTimer)
-        // let LinkedIn start swapping the pane before the first read
-        retryTimer = window.setTimeout(() => attemptExtract(), 300)
-    }
-
-    // The pane swaps without a full page load; DOM mutations are the reliable
-    // signal from an isolated content script (shared DOM, unlike history).
-    const observer = new MutationObserver(() => {
-        const jobId = getJobId()
-        if (jobId && jobId !== lastSavedJobId) scheduleExtract()
-    })
-    observer.observe(document.body, { childList: true, subtree: true })
-
-    // Initial load
-    scheduleExtract()
-} else {
-    const scriptTags = document.querySelectorAll(
-        'script[type="application/ld+json"]',
-    )
-    console.log('Parsing JSON-LD for job details...')
-    const details = Array.from(scriptTags).flatMap((s) => {
-        try {
-            return [JSON.parse(s.innerHTML)]
-        } catch {
-            return []
-        }
-    })
-    // const jobDetails = details.find((d) => d['@type'] === 'JobPosting')
-    let jobDetails: JsonLdJobPosting | null = null
-    for (const parsed of details) {
-        const found = findJobPosting(parsed)
-        if (found) {
-            jobDetails = found
-            break
-        }
-    }
-
-    if (jobDetails) {
-        const locationSource = Array.isArray(jobDetails.jobLocation)
-            ? jobDetails.jobLocation[0]
-            : jobDetails.jobLocation
-
-        const locationCity = locationSource?.address?.addressLocality || ''
-        const locationState = locationSource?.address?.addressRegion || ''
-        const location = [locationCity, locationState]
-            .filter(Boolean)
-            .join(', ')
-
-        const baseSalary = jobDetails.baseSalary?.value
-        let salary = ''
-
-        if (baseSalary?.value) {
-            salary = `$${baseSalary.value}${baseSalary.unitText ? ` per ${baseSalary.unitText.toLowerCase()}` : ''}`
-        } else if (baseSalary?.minValue && baseSalary?.maxValue) {
-            salary = `$${baseSalary.minValue} - $${baseSalary.maxValue}${baseSalary.unitText ? ` per ${baseSalary.unitText.toLowerCase()}` : ''}`
-        } else {
-            const patterns = [
-                /\$\d{1,3}(,\d{3})*(\.\d+)?\s*-\s*\$\d{1,3}(,\d{3})*(\.\d+)?/,
-                /\$\d{1,3}(,\d{3})*(\.\d+)?\s*per\s*(year|month|week|day|hour)/i,
-                /\$\d{1,3}(,\d{3})*(\.\d+)?(\/hour)?/,
-                /\b\d{1,3}(,\d{3})*(\.\d+)?\s*(USD|EUR|GBP|CAD|AUD)\b/i,
-            ]
-
-            const textContent =
-                new DOMParser().parseFromString(
-                    jobDetails.description || '',
-                    'text/html',
-                ).body.textContent || ''
-
-            for (const pattern of patterns) {
-                const match = textContent.match(pattern)
-                if (match) {
-                    salary = match[0]
-                    break
+            if (!job) {
+                if (tries > 0) {
+                    retryTimer = window.setTimeout(
+                        () => attemptExtract(tries - 1),
+                        400,
+                    )
                 }
+                return
             }
+
+            if (job.jobId === lastSavedJobId) return // already saved this one
+
+            lastSavedJobId = job.jobId ?? null
+            chrome.storage.local.set({ detectedJob: job }, () => {
+                console.log('JobTrackr: Saved detected LinkedIn job:', job)
+            })
         }
 
-        const application = {
-            id: crypto.randomUUID(),
-            jobTitle: jobDetails.title || '',
-            companyName: jobDetails.hiringOrganization?.name || '',
-            location: location,
-            salary: salary,
-            appliedFromName:
-                toAppliedFrom(new URL(window.location.href).hostname) || '',
-            appliedFromUrl: jobDetails.url || window.location.href,
-            dateApplied: new Date().toISOString(),
-            jobStatus: 'applied',
-            syncStatus: 'pending',
-            jobId: '',
+        const scheduleExtract = () => {
+            if (retryTimer) window.clearTimeout(retryTimer)
+            // let LinkedIn begin swapping the pane before the first read
+            retryTimer = window.setTimeout(() => attemptExtract(), 300)
         }
 
-        chrome.storage.local.set({ detectedJob: application }, () => {
-            console.log(
-                'JobTrackr: Saved detected job from JSON-LD:',
-                application,
-            )
+        // Pane swaps without a full page load; DOM mutation is the reliable signal
+        // from an isolated content script (shared DOM, unlike history/fetch).
+        const currentJobId = () =>
+            new URLSearchParams(window.location.search).get('currentJobId')
+
+        const observer = new MutationObserver(() => {
+            const id = currentJobId()
+            if (id && id !== lastSavedJobId) scheduleExtract()
         })
+        observer.observe(document.body, { childList: true, subtree: true })
+
+        // Initial load
+        scheduleExtract()
     }
+} else {
+    console.log('Parsing JSON-LD for job details...')
+    extractFromJsonLd(toAppliedFrom(url.hostname))
 }

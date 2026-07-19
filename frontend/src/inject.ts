@@ -121,52 +121,53 @@ if (hostname.includes('indeed.com')) {
     }
 
     console.log('Fetch interceptor installed')
-} else if (hostname.includes('linkedin.com')) {
-    console.log('LinkedIn detected - injecting script')
-    const ogFetch = window.fetch
-    let lastSeenJobId: string | null = null
-
-    window.fetch = async function (...args) {
-        // console.log('fetch request intercepted', args[0])
-        const response = await ogFetch(...args)
-        const url =
-            typeof args[0] === 'string' ? args[0] : (args[0] as Request)?.url
-        console.log('fetch request intercepted', url)
-
-        if (
-            typeof url === 'string' &&
-            url.includes('/voyager/api/jobs/jobPostings/')
-        ) {
-            try {
-                console.log('fetch request intercepted', url)
-                // const clone = response.clone()
-                // const data = await clone
-                // console.log('html', await data.text())
-                const res = await response.clone().json()
-                console.log('LinkedIn response:', res)
-                const jobId = url.split('/jobPostings/')[1]?.split('?')[0]
-
-                if (jobId && jobId != lastSeenJobId) {
-                    console.log('Saved detected LinkedIn job:', jobId)
-                    window.postMessage(
-                        {
-                            source: 'JOB_TRACKR_INJECT',
-                            companyName: res?.employerName,
-                            jobTitle: res?.jobTitle,
-                            location: res?.locationName || 'No location found',
-                            appliedFromUrl: url,
-                            jobId: jobId,
-                        },
-                        '*',
-                    )
-
-                    lastSeenJobId = jobId
-                }
-            } catch (e) {
-                console.log('Error parsing LinkedIn: ', e)
-            }
-        }
-
-        return response
-    }
 }
+// } else if (hostname.includes('linkedin.com')) {
+//     console.log('LinkedIn detected - injecting script')
+//     const ogFetch = window.fetch
+//     let lastSeenJobId: string | null = null
+
+//     window.fetch = async function (...args) {
+//         // console.log('fetch request intercepted', args[0])
+//         const response = await ogFetch(...args)
+//         const url =
+//             typeof args[0] === 'string' ? args[0] : (args[0] as Request)?.url
+//         console.log('fetch request intercepted', url)
+
+//         if (
+//             typeof url === 'string' &&
+//             url.includes('/voyager/api/jobs/jobPostings/')
+//         ) {
+//             try {
+//                 console.log('fetch request intercepted', url)
+//                 // const clone = response.clone()
+//                 // const data = await clone
+//                 // console.log('html', await data.text())
+//                 const res = await response.clone().json()
+//                 console.log('LinkedIn response:', res)
+//                 const jobId = url.split('/jobPostings/')[1]?.split('?')[0]
+
+//                 if (jobId && jobId != lastSeenJobId) {
+//                     console.log('Saved detected LinkedIn job:', jobId)
+//                     window.postMessage(
+//                         {
+//                             source: 'JOB_TRACKR_INJECT',
+//                             companyName: res?.employerName,
+//                             jobTitle: res?.jobTitle,
+//                             location: res?.locationName || 'No location found',
+//                             appliedFromUrl: url,
+//                             jobId: jobId,
+//                         },
+//                         '*',
+//                     )
+
+//                     lastSeenJobId = jobId
+//                 }
+//             } catch (e) {
+//                 console.log('Error parsing LinkedIn: ', e)
+//             }
+//         }
+
+//         return response
+//     }
+// }
