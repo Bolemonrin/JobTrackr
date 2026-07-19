@@ -74,39 +74,47 @@ if (hostname.includes('indeed.com')) {
 } else if (hostname.includes('glassdoor.com')) {
     console.log('Glassdoor detected - setting up fetch interceptor')
     const ogFetch = window.fetch
-    const lastSeenJobId: string | null = null
+    let lastSeenJobId: string | null = null
 
     window.fetch = async function (...args) {
         const response = await ogFetch(...args)
-        const url = args[0]
+        const url =
+            typeof args[0] === 'string' ? args[0] : (args[0] as Request)?.url
 
         if (typeof url === 'string' && url.includes('job-details')) {
-            const clone = response.clone()
-            const data = await clone
-            const res = await data.json()
-            console.log(res)
+            try {
+                const res = await response.clone().json()
+                // console.log(res)
+                const details = res?.jobListingDetails
+                const seoLink = details.seoJobLink
+                const jobId = seoLink?.split('jl=')[1]
+
+                if (jobId && jobId !== lastSeenJobId) {
+                    console.log('Saved detected Glassdoor job:', jobId)
+                    window.postMessage(
+                        {
+                            source: 'JOB_TRACKR_INJECT',
+                            companyName: res?.employerName,
+                            jobTitle: res?.jobTitle,
+                            location: res?.locationName || 'No location found',
+                            appliedFromUrl: url,
+                            jobId: jobId,
+                        },
+                        '*',
+                    )
+
+                    lastSeenJobId = jobId
+                }
+            } catch (e) {
+                console.error('Failed to parse Glassdoor response: ', e)
+            }
+
             // const jobInfo =
-            const url = res?.jobListingDetails?.seoJobLink
-            const jobId = url.split('jl=')[1]
+
             // console.log('Result', res?.jobListingDetails)
             // console.log('Company Name:', res?.jobListingDetails?.employerName)
             // console.log('Job Title:', res?.jobListingDetails?.title)
             // console.log('Location:', res?.jobListingDetails?.location)
-
-            if (jobId && jobId !== lastSeenJobId) {
-                console.log('Saved detected Glassdoor job:', jobId)
-                window.postMessage(
-                    {
-                        source: 'JOB_TRACKR_INJECT',
-                        companyName: res?.employerName,
-                        jobTitle: res?.jobTitle,
-                        location: res?.locationName || 'No location found',
-                        appliedFromUrl: url,
-                        jobId: jobId,
-                    },
-                    '*',
-                )
-            }
         }
 
         return response
@@ -116,24 +124,47 @@ if (hostname.includes('indeed.com')) {
 } else if (hostname.includes('linkedin.com')) {
     console.log('LinkedIn detected - injecting script')
     const ogFetch = window.fetch
-    // const lastSeenJobId: string | null = null
+    let lastSeenJobId: string | null = null
 
     window.fetch = async function (...args) {
         // console.log('fetch request intercepted', args[0])
         const response = await ogFetch(...args)
-        const url = args[0]
-        console.log('fetch request intercepted', url);
+        const url =
+            typeof args[0] === 'string' ? args[0] : (args[0] as Request)?.url
+        console.log('fetch request intercepted', url)
 
         if (
             typeof url === 'string' &&
             url.includes('/voyager/api/jobs/jobPostings/')
         ) {
-            console.log('fetch request intercepted', url)
-            const clone = response.clone()
-            const data = await clone
-            // console.log('html', await data.text())
-            const res = await data.json()
-            console.log(res)
+            try {
+                console.log('fetch request intercepted', url)
+                // const clone = response.clone()
+                // const data = await clone
+                // console.log('html', await data.text())
+                const res = await response.clone().json()
+                console.log('LinkedIn response:', res)
+                const jobId = url.split('/jobPostings/')[1]?.split('?')[0]
+
+                if (jobId && jobId != lastSeenJobId) {
+                    console.log('Saved detected LinkedIn job:', jobId)
+                    window.postMessage(
+                        {
+                            source: 'JOB_TRACKR_INJECT',
+                            companyName: res?.employerName,
+                            jobTitle: res?.jobTitle,
+                            location: res?.locationName || 'No location found',
+                            appliedFromUrl: url,
+                            jobId: jobId,
+                        },
+                        '*',
+                    )
+
+                    lastSeenJobId = jobId
+                }
+            } catch (e) {
+                console.log('Error parsing LinkedIn: ', e)
+            }
         }
 
         return response

@@ -141,6 +141,17 @@ function injectScript() {
     ;(document.head || document.documentElement).appendChild(script)
 }
 
+function isJobPosting(node: any): boolean {
+    const t = node?.['@type']
+    return t === 'JobPosting' || (Array.isArray(t) && t.includes('JobPosting'))
+}
+
+function findJobPosting(parsed: any): any | null {
+    // A block may be the JobPosting directly, or wrap it in @graph
+    const nodes = Array.isArray(parsed['@graph']) ? parsed['@graph'] : [parsed]
+    return nodes.find(isJobPosting) ?? null
+}
+
 if (url.hostname.includes('glassdoor.com')) {
     console.log('Logging from content script on Glassdoor')
     injectScript()
@@ -252,7 +263,15 @@ if (url.hostname.includes('glassdoor.com')) {
             return []
         }
     })
-    const jobDetails = details.find((d) => d['@type'] === 'JobPosting')
+    // const jobDetails = details.find((d) => d['@type'] === 'JobPosting')
+    let jobDetails: any = null
+    for (const parsed of details) {
+        const found = findJobPosting(parsed)
+        if (found) {
+            jobDetails = found
+            break
+        }
+    }
 
     if (jobDetails) {
         const locationSource = Array.isArray(jobDetails.jobLocation)
@@ -299,10 +318,14 @@ if (url.hostname.includes('glassdoor.com')) {
             id: crypto.randomUUID(),
             jobTitle: jobDetails.title || '',
             companyName: jobDetails.hiringOrganization?.name || '',
-            location,
-            salary,
+            location: location,
+            salary: salary,
             appliedFromName: new URL(window.location.href).hostname || '',
             appliedFromUrl: jobDetails.url || window.location.href,
+            dateApplied: new Date().toISOString(),
+            jobStatus: 'applied',
+            syncStatus: 'pending',
+            jobId: ''
         }
 
         chrome.storage.local.set({ detectedJob: application }, () => {
