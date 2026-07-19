@@ -74,6 +74,48 @@ const Form = ({ mode, initialValues, onSubmit, onClose }: FormProps) => {
             updatedAt: new Date().toISOString(),
             lastSyncError: undefined,
         }
+        // const base: Partial<Application> =
+        //     mode === "edit" && initialValues
+        //         ? {
+        //             ...initialValues
+        //         }
+        //         : {
+        //             id: nanoid(),
+        //             dateApplied: new Date().toISOString(),
+        //             // jobTitle: "",
+        //             // jobStatus: "applied",
+        //             // appliedFromName: "",
+        //             // appliedFromUrl: "",
+        //             // companyName: "",
+        //             // jobUrl: "",
+        //             // jobId: "",
+        //             // notes: "",
+        //             // salary: "",
+        //             // jobDescription: "",
+        //         };
+
+        // const updated: Application = {
+        //     // required fields (ensure these exist)
+        //     id: base.id!,
+        //     dateApplied: base.dateApplied!,
+        //     companyName: companyName || base.companyName!,
+        //     jobTitle: jobTitle || base.jobTitle!,
+        //     jobStatus: status || base.jobStatus!,
+        //     appliedFromUrl: websiteUrl || base.appliedFromUrl!,
+        //     appliedFromName: websiteName as Application["appliedFromName"] || base.appliedFromName!,
+        //     resumeRef: resumeUsed || "",
+        //     syncStatus: "pending",
+
+        //     // keep optional fields from edit (if any)
+        //     jobUrl: base.jobUrl,
+        //     jobId: base.jobId,
+        //     notes: base.notes,
+        //     salary: base.salary,
+        //     jobDescription: base.jobDescription,
+        //     location: jobLocation || base.location,
+        //     updatedAt: new Date().toISOString(),
+        //     lastSyncError: undefined,
+        // };
 
         onSubmit(updated)
         onClose()

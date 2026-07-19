@@ -1,7 +1,7 @@
-import type { ManualEntryProps } from '../../../types'
+import type { ManualEntryProps } from "../../../types"
 
 const ManualEntry = ({ onOpen }: ManualEntryProps) => {
-    const entryButton = 'bg-white hover:bg-gray-300 text-slate-700'
+    const entryButton = "bg-white hover:bg-gray-300 text-slate-700"
 
     return (
         <div className="flex justify-center">

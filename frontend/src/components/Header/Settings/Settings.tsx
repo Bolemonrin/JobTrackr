@@ -1,7 +1,7 @@
 /** @format */
 
 import SiteSettings from './SiteSettings'
-// import Appearance from './Appearance'
+// import Appearance from "./Appearance";
 import Data from './Data'
 
 // import type { SettingsProps } from "../../../types";

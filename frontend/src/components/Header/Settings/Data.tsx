@@ -140,7 +140,7 @@ const Data = () => {
                     </p>
                 </div>
 
-                <hr className={`my-3 border-t "border-slate-700"`} />
+                <hr className={`my-3 border-t border-slate-700`} />
 
                 <div className="space-y-2">
                     <h3 className="text-sm font-semibold">Sync Options</h3>

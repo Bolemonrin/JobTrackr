@@ -209,7 +209,7 @@ function replaceRowColumnValue(spreadsheetId, app) {
 
 		if (row === -1) {
 			// check if row exists
-			Logger.log("Row not found for ID: " + id);
+			Logger.log("Row not found for ID: " + app.id);
 			return false;
 		}
 

@@ -5,7 +5,7 @@
     "description": "Job Tracking Extension",
     "action": {
         "default_popup": "index.html",
-        "default_title": "Hello World"
+        "default_title": "JobTrackr"
     },
     "permissions": ["storage", "scripting", "activeTab"],
     "background": {

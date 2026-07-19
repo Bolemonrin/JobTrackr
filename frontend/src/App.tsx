@@ -7,7 +7,7 @@ import Settings from './components/Header/Settings/Settings'
 
 function App() {
     const [showSettings, setShowSettings] = useState(false)
-    // const [theme, setTheme] = useState<Theme>("lightmode");
+    // const [theme,] = useState<Theme>("lightmode");
 
     // const changeTheme = (e: React.ChangeEvent<HTMLInputElement>) => {
     //   const value = e.target.value as Theme
