@@ -1,34 +1,21 @@
-# Logs
-logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
+# Secrets
+.env
+.env.*
+!.env.example
 
-node_modules
-dist
-dist-ssr
-*.local
+# Dependencies
+node_modules/
 
-# Editor directories and files
-.vscode/*
-!.vscode/extensions.json
-.idea
+# Build output
+frontend/dist/
+
+# Apps Script local auth (clasp) — do NOT commit
+.clasprc.json
+
+# Editor / OS junk
 .DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
-
-# Package-lock.json
-package-lock.json/
-
-
-# editor beautify
-.prettierrc
-
-indeed.txt
+*.log
 temp.txt
+
+# TypeScript build cache
+*.tsbuildinfo
