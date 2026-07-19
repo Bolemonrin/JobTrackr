@@ -1,135 +1,7 @@
 /** @format */
-
+import type { JsonLdJobPosting, JsonLdBlock } from "./types"
 const url = new URL(window.location.href)
 
-// debugging
-// console.log('🚀 Content script executing at:', document.readyState)
-// console.log('🚀 URL:', window.location.href)
-
-// Linkedin Job posting
-// if (url.hostname.includes('linkedin.com')) {
-//     let lastSeenJobId: string | null = null
-//     let pendingTimer: number | null = null
-
-//     function getCurrentJobId(): string | null {
-//         return new URLSearchParams(window.location.search).get('currentJobId')
-//     }
-
-//     function extractLinkedInJobData() {
-//         const jobId = getCurrentJobId()
-//         if (!jobId) return null
-
-//         const titleEl = document.querySelector(
-//             '.job-details-jobs-unified-top-card__job-title',
-//         )
-
-//         const companyEl = document.querySelector(
-//             '.job-details-jobs-unified-top-card__company-name',
-//         )
-
-//         // Don’t save until core DOM is actually present
-//         const jobTitle = titleEl?.textContent?.trim() || ''
-//         const companyName = companyEl?.textContent?.trim() || ''
-
-//         if (!jobTitle || !companyName) return null
-
-//         const locationContainer = document.querySelector(
-//             '.job-details-jobs-unified-top-card__primary-description-container',
-//         )
-
-//         const salaryContainer = document.querySelector(
-//             '.job-details-fit-level-preferences',
-//         )
-
-//         const canonicalUrl = `https://www.linkedin.com/jobs/view/${jobId}`
-
-//         return {
-//             id: jobId,
-//             jobId,
-//             jobTitle,
-//             companyName,
-//             appliedFromUrl: canonicalUrl,
-//             appliedFromName: 'LinkedIn',
-//             location:
-//                 (
-//                     locationContainer?.querySelector(
-//                         'span > span',
-//                     ) as HTMLElement
-//                 )?.innerText?.trim() || '',
-//             salary:
-//                 (
-//                     salaryContainer?.querySelector(
-//                         'span > strong',
-//                     ) as HTMLElement
-//                 )?.innerText?.trim() || '',
-//             dateApplied: new Date().toISOString(),
-//             jobStatus: 'applied',
-//             syncStatus: 'pending',
-//         }
-//     }
-
-//     function saveIfNewJob() {
-//         const currentJobId = getCurrentJobId()
-//         if (!currentJobId) return
-
-//         // If same job id, still allow a retry in case DOM wasn’t ready before
-//         const jobData = extractLinkedInJobData()
-//         if (!jobData) return
-
-//         // Prevent redundant writes once it succeeds
-//         if (lastSeenJobId === currentJobId) return
-
-//         lastSeenJobId = currentJobId
-//         chrome.storage.local.set({ detectedJob: jobData })
-//         console.log('Saved detected LinkedIn job:', jobData)
-//     }
-
-//     function scheduleCheck() {
-//         if (pendingTimer) window.clearTimeout(pendingTimer)
-
-//         // Give LinkedIn time to render the right pane
-//         pendingTimer = window.setTimeout(() => {
-//             saveIfNewJob()
-//         }, 900)
-//     }
-
-//     function patchHistoryMethod(method: 'pushState' | 'replaceState') {
-//         const original = history[method]
-
-//         history[method] = function (
-//             this: History,
-//             ...args: Parameters<History[typeof method]>
-//         ) {
-//             const result = original.apply(this, args)
-//             scheduleCheck()
-//             return result
-//         } as History[typeof method]
-//     }
-
-//     patchHistoryMethod('pushState')
-//     patchHistoryMethod('replaceState')
-
-//     window.addEventListener('popstate', scheduleCheck)
-
-//     // Observe DOM changes because LinkedIn may update pane without a clean history event
-//     const observer = new MutationObserver(() => {
-//         const currentJobId = getCurrentJobId()
-//         if (!currentJobId) return
-
-//         // Only care if the selected job may have changed
-//         if (currentJobId !== lastSeenJobId) {
-//             scheduleCheck()
-//         }
-//     })
-
-//     observer.observe(document.body, {
-//         childList: true,
-//         subtree: true,
-//     })
-
-//     // Initial attempt on page load
-//     scheduleCheck()
-// }
 
 function injectScript() {
     if (document.querySelector('script[data-jobtrackr-inject]')) return
@@ -141,14 +13,15 @@ function injectScript() {
     ;(document.head || document.documentElement).appendChild(script)
 }
 
-function isJobPosting(node: any): boolean {
-    const t = node?.['@type']
+function isJobPosting(node: unknown): node is JsonLdJobPosting {
+    const t = (node as JsonLdBlock)?.['@type']
     return t === 'JobPosting' || (Array.isArray(t) && t.includes('JobPosting'))
 }
 
-function findJobPosting(parsed: any): any | null {
+function findJobPosting(parsed: unknown): JsonLdJobPosting | null {
     // A block may be the JobPosting directly, or wrap it in @graph
-    const nodes = Array.isArray(parsed['@graph']) ? parsed['@graph'] : [parsed]
+    const block = parsed as JsonLdBlock
+    const nodes = Array.isArray(block['@graph']) ? block['@graph'] : [parsed]
     return nodes.find(isJobPosting) ?? null
 }
 
@@ -264,7 +137,7 @@ if (url.hostname.includes('glassdoor.com')) {
         }
     })
     // const jobDetails = details.find((d) => d['@type'] === 'JobPosting')
-    let jobDetails: any = null
+    let jobDetails: JsonLdJobPosting | null = null
     for (const parsed of details) {
         const found = findJobPosting(parsed)
         if (found) {

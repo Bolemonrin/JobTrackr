@@ -85,3 +85,25 @@ export interface PopupProps {
     onEdit: () => void
     onDismiss: () => void
 }
+
+export interface JobLocation {
+    address?: { addressLocality?: string; addressRegion?: string }
+}
+
+export interface JsonLdJobPosting extends JobLocation {
+    '@type'?: string | string[]
+    title?: string
+    hiringOrganization?: { name?: string }
+    jobLocation?: JobLocation | JobLocation[]
+    baseSalary?: {
+        value?: { value?: number; minValue?: number; maxValue?: number; unitText?: string }
+    }
+    description?: string
+    url?: string
+}
+
+// A parsed JSON-LD block: either a node itself, or a container with @graph
+export interface JsonLdBlock {
+    '@type'?: string | string[]
+    '@graph'?: unknown[]
+}
