@@ -1,5 +1,5 @@
 /** @format */
-import type { JsonLdJobPosting, JsonLdBlock } from "./types"
+import type { JsonLdJobPosting, JsonLdBlock, AppliedFrom } from "./types"
 const url = new URL(window.location.href)
 
 
@@ -11,6 +11,15 @@ function injectScript() {
     script.dataset.jobtrackrInject = 'true'
     script.onload = () => script.remove()
     ;(document.head || document.documentElement).appendChild(script)
+}
+
+function toAppliedFrom(hostname: string): AppliedFrom {
+    const h = hostname.replace(/^www\./, '')
+    if (h.includes('linkedin.com')) return 'LinkedIn'
+    if (h.includes('indeed.com')) return 'Indeed'
+    if (h.includes('glassdoor.com')) return 'Glassdoor'
+    if (h.includes('handshake.com')) return 'Handshake'
+    return 'Other'
 }
 
 function isJobPosting(node: unknown): node is JsonLdJobPosting {
@@ -193,7 +202,7 @@ if (url.hostname.includes('glassdoor.com')) {
             companyName: jobDetails.hiringOrganization?.name || '',
             location: location,
             salary: salary,
-            appliedFromName: new URL(window.location.href).hostname || '',
+            appliedFromName: toAppliedFrom(new URL(window.location.href).hostname) || '',
             appliedFromUrl: jobDetails.url || window.location.href,
             dateApplied: new Date().toISOString(),
             jobStatus: 'applied',
