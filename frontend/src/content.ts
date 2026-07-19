@@ -1,7 +1,11 @@
 /** @format */
-import type { JsonLdJobPosting, JsonLdBlock, AppliedFrom } from "./types"
+import type {
+    JsonLdJobPosting,
+    JsonLdBlock,
+    AppliedFrom,
+    Application,
+} from './types'
 const url = new URL(window.location.href)
-
 
 function injectScript() {
     if (document.querySelector('script[data-jobtrackr-inject]')) return
@@ -133,6 +137,105 @@ if (url.hostname.includes('glassdoor.com')) {
             })
         }, 300)
     })
+} else if (url.hostname.includes('linkedin.com')) {
+    console.log('Logging from content script on LinkedIn')
+
+    let lastSavedJobId: string | null = null
+    let retryTimer: number | null = null
+
+    // LinkedIn puts the selected job's id in the page URL as ?currentJobId=
+    const getJobId = (): string | null =>
+        new URLSearchParams(window.location.search).get('currentJobId')
+
+    // First matching selector that actually has text wins.
+    // Multiple fallbacks because LinkedIn reskins these class names often.
+    const readText = (selectors: string[]): string => {
+        for (const sel of selectors) {
+            const el = document.querySelector(sel) as HTMLElement | null
+            const t = el?.innerText?.trim()
+            if (t) return t
+        }
+        return ''
+    }
+
+    const extractJob = (jobId: string): Application | null => {
+        const jobTitle = readText([
+            '.job-details-jobs-unified-top-card__job-title h1',
+            '.job-details-jobs-unified-top-card__job-title',
+            'h1.t-24',
+        ])
+
+        const companyName = readText([
+            '.job-details-jobs-unified-top-card__company-name a',
+            '.job-details-jobs-unified-top-card__company-name',
+        ])
+
+        // Core fields not rendered yet — signal the caller to retry
+        if (!jobTitle || !companyName) return null
+
+        const location = readText([
+            '.job-details-jobs-unified-top-card__primary-description-container span.tvm__text',
+            '.job-details-jobs-unified-top-card__primary-description-container',
+        ])
+
+        const salary = readText([
+            '.job-details-jobs-unified-top-card__job-insight span',
+            '.job-details-fit-level-preferences span strong',
+        ])
+
+        return {
+            id: crypto.randomUUID(),
+            jobId,
+            jobTitle,
+            companyName,
+            location,
+            salary,
+            appliedFromName: 'LinkedIn',
+            appliedFromUrl: `https://www.linkedin.com/jobs/view/${jobId}`,
+            dateApplied: new Date().toISOString(),
+            jobStatus: 'applied',
+            syncStatus: 'pending',
+        }
+    }
+
+    // Try to extract; if the pane hasn't rendered, retry a few times then give up
+    const attemptExtract = (tries = 6) => {
+        const jobId = getJobId()
+        if (!jobId || jobId === lastSavedJobId) return
+
+        const job = extractJob(jobId)
+        if (!job) {
+            if (tries > 0) {
+                retryTimer = window.setTimeout(
+                    () => attemptExtract(tries - 1),
+                    400,
+                )
+            }
+            return
+        }
+
+        lastSavedJobId = jobId
+        chrome.storage.local.set({ detectedJob: job }, () => {
+            console.log('JobTrackr: Saved detected LinkedIn job:', job)
+        })
+    }
+
+    const scheduleExtract = () => {
+        if (retryTimer) window.clearTimeout(retryTimer)
+        // let LinkedIn start swapping the pane before the first read
+        retryTimer = window.setTimeout(() => attemptExtract(), 300)
+    }
+
+    // The pane swaps without a full page load; DOM mutations are the reliable
+    // signal from an isolated content script (shared DOM, unlike history).
+    const observer = new MutationObserver(() => {
+        const jobId = getJobId()
+        if (jobId && jobId !== lastSavedJobId) scheduleExtract()
+    })
+    observer.observe(document.body, { childList: true, subtree: true })
+
+    // Initial load
+    scheduleExtract()
 } else {
     const scriptTags = document.querySelectorAll(
         'script[type="application/ld+json"]',
@@ -202,12 +305,13 @@ if (url.hostname.includes('glassdoor.com')) {
             companyName: jobDetails.hiringOrganization?.name || '',
             location: location,
             salary: salary,
-            appliedFromName: toAppliedFrom(new URL(window.location.href).hostname) || '',
+            appliedFromName:
+                toAppliedFrom(new URL(window.location.href).hostname) || '',
             appliedFromUrl: jobDetails.url || window.location.href,
             dateApplied: new Date().toISOString(),
             jobStatus: 'applied',
             syncStatus: 'pending',
-            jobId: ''
+            jobId: '',
         }
 
         chrome.storage.local.set({ detectedJob: application }, () => {
