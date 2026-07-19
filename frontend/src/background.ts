@@ -54,7 +54,7 @@ async function handleSync(action: string, payload: object) {
                 action: action,
                 payload: payload,
                 sheetId: spreadsheetId,
-                token: import.meta.env.VITE_SHARED_TOKEN,
+                token: import.meta.env.SHARED_TOKEN,
             }),
         })
 
