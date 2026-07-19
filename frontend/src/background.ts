@@ -11,7 +11,7 @@ interface ResponseData {
 }
 
 const GOOGLE_SCRIPT_URL =
-    'https://script.google.com/macros/s/AKfycbyLAl5H9eAdR8osbSq3EOn0rj92o29EPHnIXTiDt7ssekgLVAV2A2ryxdgQE9Hythbp/exec'
+    'https://script.google.com/macros/s/AKfycbyH5Xh-hxZ-JIig4egc5SYMw4gqhNBcsxfSt1rIoHWJs4XjvElgU9mqd41zcLHRfjnt/exec'
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     console.log('background got the message', message)
