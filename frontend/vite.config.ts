@@ -29,6 +29,7 @@ export default defineConfig({
                 assetFileNames: 'assets/[name]-[hash][extname]',
             },
         },
+        modulePreload: false,
     },
     test: {
         environment: 'jsdom',
