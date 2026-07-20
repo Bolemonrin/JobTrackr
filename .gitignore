@@ -21,3 +21,4 @@ indeed.txt
 
 # TypeScript build cache
 *.tsbuildinfo
+dist.zip

@@ -17,7 +17,7 @@ const Nav = ({ settingsClick, showSettings }: NavProps) => {
                         alt="JobTracker Logo"
                         className="w-6 h-6 rounded-full"
                     />
-                    <span className="text-lg font-semibold">JobTracker</span>
+                    <span className="text-lg font-semibold">JobTrackr</span>
                 </div>
                 {/*right side: settings button */}
                 <button
