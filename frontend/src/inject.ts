@@ -97,7 +97,7 @@ if (hostname.includes('indeed.com')) {
                             companyName: res?.employerName,
                             jobTitle: res?.jobTitle,
                             location: res?.locationName || 'No location found',
-                            appliedFromUrl: "https://www.glassdoor.com" + url,
+                            appliedFromUrl: seoLink,
                             jobId: jobId,
                         },
                         '*',
