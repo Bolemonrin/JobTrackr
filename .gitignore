@@ -16,6 +16,9 @@ frontend/dist/
 .DS_Store
 *.log
 temp.txt
+indeed.txt
+*.txt
 
 # TypeScript build cache
 *.tsbuildinfo
+dist.zip

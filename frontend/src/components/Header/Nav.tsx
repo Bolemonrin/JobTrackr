@@ -1,5 +1,5 @@
 import '../../index.css'
-import logo1 from '../../assets/logo1.png'
+// import logo1 from '../../assets/logo1.png'
 import type { NavProps } from '../../types'
 
 const Nav = ({ settingsClick, showSettings }: NavProps) => {
@@ -13,11 +13,11 @@ const Nav = ({ settingsClick, showSettings }: NavProps) => {
                 {/*left side: logo and title */}
                 <div className="flex items-center gap-2">
                     <img
-                        src={logo1}
+                        src={chrome.runtime.getURL('icons/icon128.png')}
                         alt="JobTracker Logo"
                         className="w-6 h-6 rounded-full"
                     />
-                    <span className="text-lg font-semibold">JobTracker</span>
+                    <span className="text-lg font-semibold">JobTrackr</span>
                 </div>
                 {/*right side: settings button */}
                 <button

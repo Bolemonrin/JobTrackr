@@ -171,12 +171,15 @@ const Home = () => {
     }
 
     const editApplication = async (app: Application) => {
-        setApplications((prev) => prev.map((a) => (a.id === app.id ? app : a)))
+        const exists = applications.some((a) => a.id === app.id)
+
+        setApplications((prev) => exists ? prev.map((a) => (a.id === app.id ? app : a)) : [...prev, app]
+    )
 
         console.log('SYNC_DATA', 'EDIT', app.id, app)
         const res = await chrome?.runtime?.sendMessage?.({
             type: 'SYNC_DATA',
-            action: 'EDIT',
+            action: exists ? 'EDIT' : 'CREATE',
             payload: app,
         })
 
