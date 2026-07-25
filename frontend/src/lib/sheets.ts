@@ -187,3 +187,18 @@ export async function importFromSheet(sheetId: string): Promise<Application[]> {
     )
     return (data.values ?? []).map(rowToApplication)
 }
+
+export async function createSheet(): Promise<string> {
+    const res = await authFetch<{ spreadsheetId: string }>(
+        API,
+        {
+            method: 'POST',
+            body: JSON.stringify({
+                properties: { title: 'JobTrackr Applications' },
+                sheets: [{ properties: { title: 'Applications' } }],
+            }),
+        },
+    )
+    await checkHeader(res.spreadsheetId)   // writes the header row
+    return res.spreadsheetId
+}

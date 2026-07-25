@@ -5,12 +5,12 @@ import {
     saveSheetUrl,
     saveApplications,
 } from '../../../lib/storage'
-import { checkHeader, handleIdParsing } from '../../../lib/sheets'
+import { createSheet } from '../../../lib/sheets'
 
 const Data = () => {
     const containerColor = 'bg-slate-800 border-slate-700'
 
-    const inputColor = 'border-stone-600 bg-slate-800 text-stone-200'
+    // const inputColor = 'border-stone-600 bg-slate-800 text-stone-200'
 
     const buttonTheme =
         'bg-blue-600 hover:bg-blue-700 text-white disabled:bg-slate-700 disabled:text-slate-500'
@@ -39,35 +39,35 @@ const Data = () => {
         }
     }, [])
 
-    useEffect(() => {
-        if (!sheetUrl) return
+    // useEffect(() => {
+    //     if (!sheetUrl) return
 
-        // 1. Skip the initial load echo — nothing actually changed
-        if (sheetUrl === savedUrlRef.current) return
+    //     // 1. Skip the initial load echo — nothing actually changed
+    //     if (sheetUrl === savedUrlRef.current) return
 
-        // 2. Skip partial URLs while the user is still typing
-        if (!sheetUrl.includes('/spreadsheets/d/')) return
+    //     // 2. Skip partial URLs while the user is still typing
+    //     if (!sheetUrl.includes('/spreadsheets/d/')) return
 
-        const t = setTimeout(() => {
-            setStatus('saving')
-            ;(async () => {
-                try {
-                    const sheetId = handleIdParsing(sheetUrl) // 3. real validation
-                    await checkHeader(sheetId)
-                    await saveSheetUrl(sheetUrl)
+    //     const t = setTimeout(() => {
+    //         setStatus('saving')
+    //         ;(async () => {
+    //             try {
+    //                 const sheetId = handleIdParsing(sheetUrl) // 3. real validation
+    //                 await checkHeader(sheetId)
+    //                 await saveSheetUrl(sheetUrl)
 
-                    savedUrlRef.current = sheetUrl // keep ref in sync
-                    setStatus('saved')
-                    setTimeout(() => setStatus('idle'), 800)
-                } catch (e) {
-                    console.error(e)
-                    setStatus('error')
-                }
-            })()
-        }, 350)
+    //                 savedUrlRef.current = sheetUrl // keep ref in sync
+    //                 setStatus('saved')
+    //                 setTimeout(() => setStatus('idle'), 800)
+    //             } catch (e) {
+    //                 console.error(e)
+    //                 setStatus('error')
+    //             }
+    //         })()
+    //     }, 350)
 
-        return () => clearTimeout(t)
-    }, [sheetUrl])
+    //     return () => clearTimeout(t)
+    // }, [sheetUrl])
 
     const handleImport = async () => {
         if (!sheetUrl) {
@@ -108,6 +108,22 @@ const Data = () => {
         setIsImporting(false)
     }
 
+    const handleCreateSheet = async () => {
+        try {
+            const sheetId = await createSheet()
+            const sheetUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/edit`
+            await saveSheetUrl(sheetUrl)
+            savedUrlRef.current = sheetUrl
+            setSheetUrl(sheetUrl)
+
+            setStatus('saved')
+            setTimeout(() => setStatus('idle'), 800)
+        } catch (e) {
+            console.error(e)
+            setStatus('error')
+        }
+    }
+
     const helperText =
         status === 'saving'
             ? 'Saving...'
@@ -117,11 +133,6 @@ const Data = () => {
                 ? '❌ Error saving data'
                 : ''
 
-    // const keyHandler = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    //     if (e.key === "Enter") {
-    //         addSite()
-    //     }
-    // }
     return (
         <div className={`p-3 rounded-xl border ${containerColor}`}>
             <div className="mb-4">
@@ -135,23 +146,39 @@ const Data = () => {
 
             {/* Sheet URL */}
             <div className="space-y-4">
-                <div>
-                    <label className="flex flex-col gap-2">
-                        <span className="text-sm font-medium">
-                            Google Sheet URL:
-                        </span>
-                        <input
-                            className={`border rounded-lg px-3 py-2 text-sm ${inputColor}`}
-                            type="url"
-                            placeholder="https://docs.google.com/spreadsheets/d/..."
-                            value={sheetUrl}
-                            onChange={(e) => setSheetUrl(e.target.value)}
-                        />
-                    </label>
-                    <p className={`text-xs mt-1 ${statusTheme}`}>
-                        Link to your Google Sheet for syncing applications
-                    </p>
-                </div>
+                {sheetUrl ? (
+                    <>
+                        <div className="space-y-1">
+                            <a
+                                href={sheetUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-sm text-blue-400 hover:underline break-all"
+                            >
+                                Open your JobTrackr sheet ↗
+                            </a>
+                            <p className={`text-xs ${statusTheme}`}>
+                                Your applications sync to this sheet.
+                            </p>
+                        </div>
+                    </>
+                ) : (
+                    <>
+                        <button
+                            onClick={handleCreateSheet}
+                            disabled={status === 'saving'}
+                            className={`w-full px-4 py-2 rounded-lg font-medium transition-colors ${buttonTheme}`}
+                        >
+                            {status === 'saving'
+                                ? '⌛ Creating…'
+                                : '📄 Create Google Sheet'}
+                        </button>
+                        <p className={`text-xs mt-1 ${statusTheme}`}>
+                            Creates a sheet in your Google Drive to sync
+                            applications to.
+                        </p>
+                    </>
+                )}
 
                 <hr className={`my-3 border-t border-slate-700`} />
 

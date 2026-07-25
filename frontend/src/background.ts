@@ -21,6 +21,12 @@ type SyncMessage =
       }
     | { action: 'READ'; payload: Record<string, never> }
 
+chrome.runtime.onInstalled.addListener(async ({ reason }) => {
+    if (reason === 'update') {
+        await chrome.storage.local.remove('sheetUrl') // force re-create
+    }
+})
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     console.log('background got the message', message)
     if (message.type === 'SYNC_DATA') {
