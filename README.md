@@ -205,4 +205,4 @@ JobTrackr reads job-posting data only, writes only to the user's own spreadsheet
 
 ## License
 
-[Add your license here]
+MIT
