@@ -16,7 +16,7 @@ export const APPLICATION_COLUMNS = [
 	"jobUrl",
 	"jobId",
 	"jobDescription",
-] as const;
+];
 
 export const applicationToRow = (app: Application) => [
 	app.id,
