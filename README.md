@@ -1,174 +1,208 @@
 # JobTrackr
 
-A Chrome extension that automatically detects jobs you view on Indeed, lets you confirm or edit the details, and syncs your applications directly to a Google Sheet — no manual data entry required.
+A Chrome extension that automatically detects job postings as you browse and saves them to a Google Sheet you own.
+
+No manual data entry, no copy-pasting, and no third-party server holding your job-search history — the extension writes directly to a spreadsheet in your own Google Drive using your own Google account.
 
 ---
 
 ## Features
 
-- **Auto-detection** — Intercepts Indeed's internal API calls to extract job metadata (title, company, location, salary) as you browse
-- **One-click logging** — Confirm, edit, or dismiss detected jobs from the extension popup
-- **Google Sheets sync** — Applications sync to your own Google Sheet via a Google Apps Script backend
-- **Manual entry** — Add applications from any site manually through the popup form
-- **Status tracking** — Track each application through stages: Applied, Interview, Offer, Rejected
-- **Offline-first** — All data is stored locally in `chrome.storage.local` first, then synced
+- **Automatic detection** of job title, company, location, posting URL, and salary where available
+- **Works on any site that publishes standard job-posting data** (schema.org `JobPosting` JSON-LD), plus dedicated support for LinkedIn, Indeed, and Glassdoor
+- **One-click confirm** — a detected job appears in the popup; you decide whether to save it
+- **Your data, your sheet** — the extension creates a spreadsheet in your Drive and syncs to it
+- **Manual entry and editing** for anything the detector misses
+- **Status tracking** — applied, interview, offer, rejected
+- **Import** — pull your applications back from the sheet onto a new device
 
 ---
 
-## How It Works
+## How it works
 
 ```
-Indeed page loads
-      ↓
-inject.js intercepts /viewjob fetch (runs in page context)
-      ↓
-Extracts job metadata from Indeed's API response + DOM (salary)
-      ↓
-Sends data to content.js via window.postMessage
-      ↓
-content.js writes to chrome.storage.local as `detectedJob`
-      ↓
-Popup (Home.tsx) reads storage and shows confirmation card
-      ↓
-On confirm → saved to applications[] → synced to Google Sheets
+┌─────────────────┐
+│  Job posting    │
+│  (any website)  │
+└────────┬────────┘
+         │  content script reads the page
+         ▼
+┌─────────────────────────────────────────┐
+│  content.ts  (isolated world)           │
+│   • JSON-LD JobPosting extraction       │
+│   • LinkedIn DOM extraction (SDUI pane) │
+│   • receives messages from inject.ts    │
+└────────┬────────────────────────────────┘
+         │  chrome.storage.local → detectedJob
+         ▼
+┌─────────────────────────────────────────┐
+│  Popup (React)                          │
+│   • shows "Job Detected!" card          │
+│   • user confirms / edits / dismisses   │
+└────────┬────────────────────────────────┘
+         │  chrome.runtime.sendMessage(SYNC_DATA)
+         ▼
+┌─────────────────────────────────────────┐
+│  background.ts (service worker)         │
+│   • attaches the user's OAuth token     │
+└────────┬────────────────────────────────┘
+         │  HTTPS, Authorization: Bearer …
+         ▼
+┌─────────────────────────────────────────┐
+│  sheets.googleapis.com                  │
+│   → the user's own spreadsheet          │
+└─────────────────────────────────────────┘
+```
+
+### Detection strategy
+
+Detection runs in tiers, so coverage extends well past a hardcoded site list:
+
+1. **JSON-LD `JobPosting`** — the generic path. Most job boards and company career pages publish structured data for Google Jobs, so the extension reads it directly. Handles `@type` as a string or array, and `JobPosting` nested inside `@graph`.
+2. **Site-specific adapters** — Indeed and Glassdoor intercept the site's own fetch responses (via a MAIN-world script) for richer data; LinkedIn uses scoped DOM extraction against its server-driven UI, since its split-pane view swaps jobs without a page load.
+
+### Authentication
+
+The extension uses `chrome.identity.launchWebAuthFlow` to sign the user in with Google and receive a short-lived access token. That token is attached to Sheets API requests made **directly from the browser**.
+
+Only the `drive.file` scope is requested — the narrowest option available, granting access solely to files the extension itself creates. The extension cannot see or touch anything else in the user's Drive.
+
+**There is no backend.** The developer operates no server, and no job data is ever transmitted anywhere except to Google, authenticated with the user's own credentials.
+
+---
+
+## Tech stack
+
+| Layer     | Tools                           |
+| --------- | ------------------------------- |
+| Extension | Chrome Manifest V3, TypeScript  |
+| UI        | React 19, Tailwind CSS          |
+| Build     | Vite                            |
+| Testing   | Vitest                          |
+| Data      | Google Sheets API v4, OAuth 2.0 |
+
+---
+
+## Project structure
+
+```
+frontend/
+├── public/
+│   ├── manifest.json        # MV3 manifest
+│   └── icons/               # extension icons (16/32/48/128)
+└── src/
+    ├── background.ts        # service worker: SYNC_DATA handler
+    ├── content.ts           # isolated world: detection + storage
+    ├── inject.ts            # MAIN world: fetch interception
+    ├── lib/
+    │   ├── auth.ts          # OAuth: signIn / getStoredToken / signOut
+    │   ├── sheets.ts        # Sheets API: create, read, update, delete
+    │   ├── storage.ts       # chrome.storage wrappers
+    │   └── scripts.ts       # dynamic content-script registration
+    ├── components/          # React popup UI
+    ├── types/               # shared TypeScript types
+    └── test/                # Vitest suites
 ```
 
 ---
 
-## Installation (Development)
+## Local development
 
 ### Prerequisites
-- Node.js 18+
-- A Google account (for Sheets sync)
 
-### Setup
+- Node.js 20+
+- A Google Cloud project with the **Google Sheets API** enabled
+- An OAuth 2.0 Client ID of type **Web application**
+
+### 1. Configure OAuth
+
+In the [Google Cloud Console](https://console.cloud.google.com):
+
+1. Enable the **Google Sheets API**
+2. Configure the **OAuth consent screen** and add `https://www.googleapis.com/auth/drive.file` as the only scope
+3. Create an OAuth 2.0 Client ID (**Web application**)
+4. Add an authorized redirect URI — run `chrome.identity.getRedirectURL()` in the extension's console and paste the result (looks like `https://<extension-id>.chromiumapp.org/`)
+5. Put the resulting client ID in `src/lib/auth.ts`
+
+> To keep a stable extension ID between local and published builds, add the published item's public key to `manifest.json` as the `key` field.
+
+### 2. Install and build
 
 ```bash
-git clone https://github.com/AfricanBolu/JobTrackr.git
-cd JobTrackr/frontend
+cd frontend
 npm install
 npm run build
 ```
 
-### Load in Chrome
+### 3. Load into Chrome
 
-1. Open `chrome://extensions`
-2. Enable **Developer mode** (top right)
-3. Click **Load unpacked**
-4. Select the `dist/` folder
+1. Go to `chrome://extensions`
+2. Enable **Developer mode**
+3. **Load unpacked** → select `frontend/dist`
 
-### Google Sheets Sync Setup
-
-1. Create a new Google Sheet
-2. Open **Extensions → Apps Script** and paste in the Apps Script backend code
-3. Deploy as a **Web App** (execute as yourself, access to anyone with the link)
-4. Copy the deployment URL
-5. Open the JobTrackr extension → **Settings** → paste the URL into the Sheet URL field
-
----
-
-## Project Structure
-
-```
-frontend/
-├── src/
-│   ├── App.tsx
-│   ├── content.ts          # Content script — bridges inject.js and chrome storage
-│   ├── inject.ts           # Page script — intercepts Indeed fetch calls
-│   ├── background.ts       # Service worker — handles Google Sheets sync messages
-│   ├── lib/
-│   │   ├── storage.ts      # Chrome storage read/write abstraction
-│   │   ├── schema.ts       # Application → Sheets row mapping
-|   |   └── script.ts       # Make the websites easier to add for auto detection
-│   ├── components/
-│   │   ├── Body/
-│   │   │   ├── Home/
-|   │   │   │   ├── PopUp.tsx         # Detected job confirmation card
-|   |   │   │   ├── ApplicationsCard.tsx
-│   │   │   |   ├── Form.tsx
-│   │   │   |   ├── ManualEntry.tsx
-│   │   │   |   └── Stats.tsx
-|   |   |   └── Home.tsx
-│   │   └── Header/
-│   │   │   ├── Settings/
-|   |   │   │   ├── Data.tsx
-│   │   │   |   ├── Settings.tsx
-│   │   │   |   ├── SiteSettings.tsx
-│   │   │   └── Nav.tsx
-│   ├── types/
-|   |   └── index.ts
-├── public/
-|   └── manifest.json
-|   ...
-└── vite.config.ts
-```
-
----
-
-## Tech Stack
-
-- **React 19** + **TypeScript** — Popup UI
-- **Tailwind CSS v4** — Styling
-- **Vite** — Build tool (dual build: app + extension scripts)
-- **Chrome Extensions Manifest V3**
-- **Google Apps Script** — Sheets sync backend
-
----
-
-## Supported Job Sites
-
-| Site | Auto-detection | Manual Entry |
-|------|---------------|--------------|
-| Indeed | ✅ | ✅ |
-| LinkedIn | 🚧 In progress | ✅ |
-| Glassdoor | ✅ | ✅ |
-| Handshake | ✅ | ✅ |
-| Other Websites | ✅ | ✅ |
-
----
-
-## Application Data Model
-
-Each tracked application stores:
-
-| Field | Description |
-|-------|-------------|
-| `id` | Unique ID (`crypto.randomUUID()`) |
-| `jobTitle` | Role title |
-| `companyName` | Company name |
-| `location` | Location or remote status |
-| `salary` | Salary range if listed |
-| `jobStatus` | `applied` / `interview` / `offer` / `rejected` |
-| `syncStatus` | `pending` / `synced` / `failed` |
-| `appliedFromName` | Source site (e.g. "Indeed") |
-| `appliedFromUrl` | Direct link to the job posting |
-| `dateApplied` | ISO timestamp |
-
----
-
-## Build Scripts
+### Scripts
 
 ```bash
-npm run dev       # Start Vite dev server (popup UI only)
-npm run build     # Full build: tsc + popup + extension scripts
-npm run lint      # ESLint
+npm run build     # tsc -b && vite build
+npm run test      # vitest
+npm run lint      # eslint
 ```
 
-The build runs in two passes:
-1. **Main build** — React popup app → `dist/assets/`
-2. **Scripts build** (`BUILD_TARGET=scripts`) — `content.ts`, `inject.ts`, `background.ts` bundled as IIFE (no ES module imports) → `dist/`
+Rebuild and hit the reload icon on the extension card after any source change — the extension runs from `dist/`, not from source.
 
 ---
 
-## Contributing
+## Packaging for the Chrome Web Store
 
-1. Fork the repo
-2. Create a feature branch (`git checkout -b feature/linkedin-support`)
-3. Commit your changes
-4. Open a pull request
+```bash
+cd frontend
+npm run build
+cd dist
+zip -r ../jobtrackr.zip .
+```
+
+`manifest.json` must sit at the **root** of the archive — hence the `cd dist` before zipping. Verify with `unzip -l ../jobtrackr.zip | head`.
+
+---
+
+## Permissions
+
+| Permission                                                              | Why                                                                                                           |
+| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `storage`                                                               | Settings, the pending detected job, and the local access token                                                |
+| `scripting`                                                             | Registering content scripts on enabled sites                                                                  |
+| `identity`                                                              | Google sign-in via OAuth                                                                                      |
+| `<all_urls>`                                                            | Job postings appear on arbitrary career sites; needed to detect structured job data wherever the user browses |
+| `sheets.googleapis.com`, `accounts.google.com`, `oauth2.googleapis.com` | Authentication and spreadsheet reads/writes                                                                   |
+
+---
+
+## Privacy
+
+JobTrackr reads job-posting data only, writes only to the user's own spreadsheet, and sends nothing to any developer-operated server. See the [privacy policy](https://bolemonrin.github.io/MyPortfolio/privacy.html) for details.
+
+---
+
+## Known limitations
+
+- **Chrome only.** `chrome.identity` is not available in Microsoft Edge.
+- **Access tokens expire hourly.** The implicit OAuth flow provides no refresh token, so re-authentication is occasionally required.
+- **Existing sheets can't be connected.** The `drive.file` scope only covers files the extension creates. Connecting a pre-existing spreadsheet would require the Google Picker.
+- **Salary extraction** is currently reliable on Indeed only.
+- **LinkedIn selectors** depend on generated class names in one place and may need updating after LinkedIn redeploys.
+
+---
+
+## Roadmap
+
+- Google Picker, so users can connect an existing spreadsheet
+- Silent re-authentication (`prompt=none`) to reduce sign-in friction
+- Salary extraction for LinkedIn and Glassdoor
+- Cross-device settings sync via `chrome.storage.sync`
+- Firefox / Edge support via a portable auth flow
 
 ---
 
 ## License
 
-MIT
+[Add your license here]
