@@ -24,16 +24,13 @@
         "storage",
         "scripting",
         "activeTab",
-        "identity",
-        "identity.email"
+        "identity"
     ],
     "background": {
         "service_worker": "background.js",
         "type": "module"
     },
     "host_permissions": [
-        "https://script.google.com/*",
-        "https://script.googleusercontent.com/*",
         "https://sheets.googleapis.com/*",
         "https://oauth2.googleapis.com/*",
         "https://accounts.google.com/*",
