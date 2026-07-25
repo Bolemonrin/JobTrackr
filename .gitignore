@@ -21,7 +21,7 @@ indeed.txt
 
 # TypeScript build cache
 *.tsbuildinfo
-dist.zip
+*.zip
 
 # untracking backend
 backend/
