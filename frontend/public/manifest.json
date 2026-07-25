@@ -1,7 +1,8 @@
 {
     "manifest_version": 3,
     "name": "JobTrackr",
-    "version": "1.0",
+    "version": "1.1.0",
+    "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqed5LECLYpci7OiZdG8KP7mv6nWPv6GZ5t3j9OGdJsyfZpHwa4Fa8uNbk8ZEiTcxAxvlGWCOC7ZZttWBy3i3NiwQ/yQVzk03K9sCRouz74dW+ekvslSZAxbFm2eFbmvWFqrHMG1Xriv9iOE2P3wVs8KOO7YkC3aVA+UdCZ9WpJyD4wFU2S0hF48/ijiommBAEm3YfcBOT7mpM85PdIuPIM0+1DqXP87RAW9MW+sx6pppRnbdMBWOitBZFlk7Z4JhILy21CeJSt8nTTRpezeN4jXzSQozkEWGGKozTumuZOedt8bVvRQf9VHQnRyMDCuHrJTfsEbTX+NLiLk1ixiEFQIDAQAB",
     "description": "Job Tracking Extension",
     "action": {
         "default_popup": "index.html",
@@ -19,7 +20,13 @@
         "48": "icons/icon48.png",
         "128": "icons/icon128.png"
     },
-    "permissions": ["storage", "scripting", "activeTab"],
+    "permissions": [
+        "storage",
+        "scripting",
+        "activeTab",
+        "identity",
+        "identity.email"
+    ],
     "background": {
         "service_worker": "background.js",
         "type": "module"
@@ -27,6 +34,9 @@
     "host_permissions": [
         "https://script.google.com/*",
         "https://script.googleusercontent.com/*",
+        "https://sheets.googleapis.com/*",
+        "https://oauth2.googleapis.com/*",
+        "https://accounts.google.com/*",
         "<all_urls>"
     ],
     "web_accessible_resources": [
@@ -34,5 +44,9 @@
             "resources": ["inject.js"],
             "matches": ["<all_urls>"]
         }
-    ]
+    ],
+    "oauth2": {
+        "client_id": "365922151307-3k7jouhtogc5m87np6sca8bvv4kv2ek9.apps.googleusercontent.com",
+        "scopes": ["https://www.googleapis.com/auth/userinfo.email"]
+    }
 }

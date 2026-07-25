@@ -1,6 +1,9 @@
 /** @format */
 
-const SHEET_NAME = "Applications"; // default sheet name
+
+const SPREADSHEET = SpreadsheetApp.getActiveSpreadsheet(); // default spreadsheet
+// const SHEET_NAME = "Applications"; // default sheet name
+const SHEET_NAME = SPREADSHEET.getSheetByName('Applications')
 // const SHEET_ID = "1joYJikR27f3lh5HdVgyEw9xvyvkdfqafc7lmaw0vl3Y";
 // const TEST_SHEET_NAME = "TEST_1";
 

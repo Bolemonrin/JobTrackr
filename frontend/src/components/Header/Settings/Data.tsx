@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import type { DataProps } from '../../../types'
 import {
     loadSheetUrl,
     saveSheetUrl,
     saveApplications,
 } from '../../../lib/storage'
+import { checkHeader, handleIdParsing } from '../../../lib/sheets'
 
 const Data = () => {
     const containerColor = 'bg-slate-800 border-slate-700'
@@ -19,17 +20,20 @@ const Data = () => {
     const [sheetUrl, setSheetUrl] = useState('')
     const [status, setStatus] = useState<DataProps['status'] | ''>('')
     const [isImporting, setIsImporting] = useState(false)
+    const savedUrlRef = useRef<string | null>(null)
 
     useEffect(() => {
         let mounted = true
 
         const load = async () => {
             const url = await loadSheetUrl()
-            if (mounted) setSheetUrl(url)
+            if (mounted) {
+                savedUrlRef.current = url ?? '' // remember it BEFORE setting state
+                setSheetUrl(url ?? '')
+            }
         }
 
         load()
-
         return () => {
             mounted = false
         }
@@ -38,12 +42,21 @@ const Data = () => {
     useEffect(() => {
         if (!sheetUrl) return
 
+        // 1. Skip the initial load echo — nothing actually changed
+        if (sheetUrl === savedUrlRef.current) return
+
+        // 2. Skip partial URLs while the user is still typing
+        if (!sheetUrl.includes('/spreadsheets/d/')) return
+
         const t = setTimeout(() => {
             setStatus('saving')
-
             ;(async () => {
                 try {
+                    const sheetId = handleIdParsing(sheetUrl) // 3. real validation
+                    await checkHeader(sheetId)
                     await saveSheetUrl(sheetUrl)
+
+                    savedUrlRef.current = sheetUrl // keep ref in sync
                     setStatus('saved')
                     setTimeout(() => setStatus('idle'), 800)
                 } catch (e) {
@@ -56,7 +69,7 @@ const Data = () => {
         return () => clearTimeout(t)
     }, [sheetUrl])
 
-    const importFromSheet = async () => {
+    const handleImport = async () => {
         if (!sheetUrl) {
             setStatus('error')
             return
@@ -145,7 +158,7 @@ const Data = () => {
                 <div className="space-y-2">
                     <h3 className="text-sm font-semibold">Sync Options</h3>
                     <button
-                        onClick={importFromSheet}
+                        onClick={handleImport}
                         disabled={isImporting || !sheetUrl}
                         className={`w-full px-4 py-2 rounded-lg font-medium transition-colors ${buttonTheme}`}
                     >
