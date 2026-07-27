@@ -13,7 +13,7 @@ export async function signIn(): Promise<string> {
         `&redirect_uri=${encodeURIComponent(REDIRECT)}` +
         `&response_type=token` +
         `&scope=${encodeURIComponent(SCOPE)}` +
-        `&prompt=consent`
+        `&prompt=${encodeURIComponent('select_account consent')}`
 
     const redirectUrl = await chrome.identity.launchWebAuthFlow({
         url: authUrl,
@@ -46,5 +46,15 @@ export async function getStoredToken(): Promise<string | null> {
 }
 
 export async function signOut(): Promise<void> {
+    // Revoke the grant with Google, otherwise the next signIn silently
+    // reuses the same account's session. Best-effort — clear local state
+    // even if revocation fails (e.g. token already expired).
+    const token = await getStoredToken()
+    if (token) {
+        await fetch(
+            `https://oauth2.googleapis.com/revoke?token=${encodeURIComponent(token)}`,
+            { method: 'POST' },
+        ).catch(() => {})
+    }
     await chrome.storage.local.remove('authToken')
 }

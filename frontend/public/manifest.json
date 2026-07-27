@@ -41,9 +41,5 @@
             "resources": ["inject.js"],
             "matches": ["<all_urls>"]
         }
-    ],
-    "oauth2": {
-        "client_id": "365922151307-3k7jouhtogc5m87np6sca8bvv4kv2ek9.apps.googleusercontent.com",
-        "scopes": ["https://www.googleapis.com/auth/userinfo.email"]
-    }
+    ]
 }

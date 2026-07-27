@@ -74,11 +74,6 @@ async function findRow(sheetId: string, id: string): Promise<number> {
     return idx === -1 ? -1 : idx + 1 // array index → sheet row
 }
 
-export async function getToken(interactive = false): Promise<string> {
-    const res = await chrome.identity.getAuthToken({ interactive })
-    return typeof res === 'string' ? res : (res as { token: string }).token
-}
-
 export async function authFetch<T>(
     url: string,
     init: RequestInit = {},
