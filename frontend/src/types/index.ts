@@ -69,7 +69,7 @@ export type FormProps = {
 }
 
 export type DataProps = {
-    status: 'idle' | 'saving' | 'saved' | 'error'
+    status: 'idle' | 'saving' | 'saved' | 'error' | 'loading' | 'loaded'
 }
 
 export type NavProps = {
@@ -107,3 +107,8 @@ export interface JsonLdBlock {
     '@type'?: string | string[]
     '@graph'?: unknown[]
 }
+
+export type SheetLookup =
+    | { status: 'found'; sheetId: string }
+    | { status: 'none' }
+    | { status: 'error'; message: string }

@@ -5,7 +5,7 @@ import {
     saveSheetUrl,
     saveApplications,
 } from '../../../lib/storage'
-import { createSheet } from '../../../lib/sheets'
+import { createSheet, checkForSheets } from '../../../lib/sheets'
 
 const Data = () => {
     const containerColor = 'bg-slate-800 border-slate-700'
@@ -14,6 +14,9 @@ const Data = () => {
 
     const buttonTheme =
         'bg-blue-600 hover:bg-blue-700 text-white disabled:bg-slate-700 disabled:text-slate-500'
+
+    const buttonSecondary =
+        'bg-slate-700 hover:bg-slate-600 text-slate-200 border border-slate-600 disabled:bg-slate-700/50 disabled:text-slate-500 disabled:border-slate-700'
 
     const statusTheme = 'text-slate-400'
 
@@ -124,6 +127,29 @@ const Data = () => {
         }
     }
 
+    const handleLoadSheet = async () => {
+        setStatus('loading')
+        try {
+            const lookup = await checkForSheets()
+            if (lookup.status !== 'found') {
+                alert('No sheets found. Please create a sheet first')
+                setStatus('idle')
+                return
+            }
+
+            const sheetUrl = `https://docs.google.com/spreadsheets/d/${lookup.sheetId}/edit`
+            await saveSheetUrl(sheetUrl)
+            savedUrlRef.current = sheetUrl
+            setSheetUrl(sheetUrl)
+
+            setStatus('loaded')
+            setTimeout(() => setStatus('idle'), 800)
+        } catch (e) {
+            console.error(e)
+            setStatus('error')
+        }
+    }
+
     const helperText =
         status === 'saving'
             ? 'Saving...'
@@ -163,21 +189,51 @@ const Data = () => {
                         </div>
                     </>
                 ) : (
-                    <>
-                        <button
-                            onClick={handleCreateSheet}
-                            disabled={status === 'saving'}
-                            className={`w-full px-4 py-2 rounded-lg font-medium transition-colors ${buttonTheme}`}
-                        >
-                            {status === 'saving'
-                                ? '⌛ Creating…'
-                                : '📄 Create Google Sheet'}
-                        </button>
-                        <p className={`text-xs mt-1 ${statusTheme}`}>
-                            Creates a sheet in your Google Drive to sync
-                            applications to.
-                        </p>
-                    </>
+                    <div className="space-y-3">
+                        <div className="space-y-1">
+                            <button
+                                onClick={handleLoadSheet}
+                                disabled={
+                                    status === 'loading' || status === 'saving'
+                                }
+                                className={`w-full px-4 py-2 rounded-lg font-medium transition-colors ${buttonTheme}`}
+                            >
+                                {status === 'loading'
+                                    ? '🔃 Loading…'
+                                    : '🔗 Load existing sheet'}
+                            </button>
+                            <p className={`text-xs ${statusTheme}`}>
+                                Reconnects a sheet JobTrackr made for this
+                                account before.
+                            </p>
+                        </div>
+
+                        <div className="flex items-center gap-3">
+                            <span className="flex-1 border-t border-slate-700" />
+                            <span className="text-xs uppercase tracking-wide text-slate-500">
+                                or
+                            </span>
+                            <span className="flex-1 border-t border-slate-700" />
+                        </div>
+
+                        <div className="space-y-1">
+                            <button
+                                onClick={handleCreateSheet}
+                                disabled={
+                                    status === 'loading' || status === 'saving'
+                                }
+                                className={`w-full px-4 py-2 rounded-lg font-medium transition-colors ${buttonSecondary}`}
+                            >
+                                {status === 'saving'
+                                    ? '⌛ Creating…'
+                                    : '📄 Create Google Sheet'}
+                            </button>
+                            <p className={`text-xs ${statusTheme}`}>
+                                Creates a new sheet in your Google Drive to sync
+                                applications to.
+                            </p>
+                        </div>
+                    </div>
                 )}
 
                 <hr className={`my-3 border-t border-slate-700`} />

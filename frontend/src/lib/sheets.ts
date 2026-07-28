@@ -1,9 +1,11 @@
 import type { Application, ApplicationStatus, AppliedFrom } from '../types'
-import { getStoredToken, signIn, signOut } from './authModule'
+import { getStoredToken, signIn, silentSignIn } from './authModule'
 import { APPLICATION_COLUMNS, applicationToRow } from './schema'
+import type { SheetLookup } from '../types'
 
 const SHEET_NAME = 'Applications'
 const API = 'https://sheets.googleapis.com/v4/spreadsheets'
+const DRIVE = 'https://www.googleapis.com/drive/v3/files'
 
 // User stores a full sheet URL in settings; pull the id out of it.
 // function sheetIdFromUrl(url: string): string {
@@ -11,7 +13,6 @@ const API = 'https://sheets.googleapis.com/v4/spreadsheets'
 //     if (!m) throw new Error('Invalid Google Sheet URL')
 //     return m[1]
 // }
-
 
 function rowToApplication(row: string[]): Application {
     const get = (col: string) => row[APPLICATION_COLUMNS.indexOf(col)] ?? ''
@@ -48,6 +49,39 @@ export function handleIdParsing(url: string): string {
     return id
 }
 
+export async function authFetch<T>(
+    url: string,
+    init: RequestInit = {},
+): Promise<T> {
+    const call = async (token: string) =>
+        fetch(url, {
+            ...init,
+            headers: {
+                ...init.headers,
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'application/json',
+            },
+        })
+
+    // Expired cached token? Try a silent refresh before giving up.
+    let token = (await getStoredToken()) ?? (await silentSignIn())
+    if (!token) throw new Error('Not signed in')
+
+    let res = await call(token)
+
+    if (res.status === 401) {
+        // Token rejected — drop it (no revoke: that would kill the grant
+        // and force the consent screen), refresh silently if possible,
+        // only bother the user as a last resort.
+        await chrome.storage.local.remove('authToken')
+        token = (await silentSignIn()) ?? (await signIn())
+        res = await call(token)
+    }
+
+    if (!res.ok) throw new Error(`Error: ${res.status}: ${await res.text()}`)
+    return res.json() as Promise<T>
+}
+
 export async function checkHeader(sheetId: string): Promise<void> {
     const data = await authFetch<{ values?: string[][] }>(
         `${API}/${sheetId}/values/${SHEET_NAME}!A1:N1`,
@@ -72,35 +106,6 @@ async function findRow(sheetId: string, id: string): Promise<number> {
     const rows = data.values ?? []
     const idx = rows.findIndex((r) => r[0] === id)
     return idx === -1 ? -1 : idx + 1 // array index → sheet row
-}
-
-export async function authFetch<T>(
-    url: string,
-    init: RequestInit = {},
-): Promise<T> {
-    const call = async (token: string) =>
-        fetch(url, {
-            ...init,
-            headers: {
-                ...init.headers,
-                Authorization: `Bearer ${token}`,
-                'Content-Type': 'application/json',
-            },
-        })
-
-    let token = await getStoredToken()
-    if (!token) throw new Error('Not signed in')
-
-    let res = await call(token)
-
-    if (res.status === 401) {
-        await signOut()
-        token = await signIn()
-        res = await call(token)
-    }
-
-    if (!res.ok) throw new Error(`Error: ${res.status}: ${await res.text()}`)
-    return res.json() as Promise<T>
 }
 
 export async function createRow(sheetId: string, app: Application) {
@@ -184,16 +189,29 @@ export async function importFromSheet(sheetId: string): Promise<Application[]> {
 }
 
 export async function createSheet(): Promise<string> {
-    const res = await authFetch<{ spreadsheetId: string }>(
-        API,
-        {
-            method: 'POST',
-            body: JSON.stringify({
-                properties: { title: 'JobTrackr Applications' },
-                sheets: [{ properties: { title: 'Applications' } }],
-            }),
-        },
-    )
-    await checkHeader(res.spreadsheetId)   // writes the header row
+    const res = await authFetch<{ spreadsheetId: string }>(API, {
+        method: 'POST',
+        body: JSON.stringify({
+            properties: { title: 'JobTrackr Applications' },
+            sheets: [{ properties: { title: 'Applications' } }],
+        }),
+    })
+    await checkHeader(res.spreadsheetId) // writes the header row
     return res.spreadsheetId
+}
+
+export async function checkForSheets(): Promise<SheetLookup> {
+    const query =
+        "mimeType = 'application/vnd.google-apps.spreadsheet'" +
+        " and name = 'JobTrackr Applications' and trashed = false"
+    const params = new URLSearchParams({
+        q: query,
+        fields: 'files(id,name)',
+    })
+    const res = await authFetch<{ files?: { id: string; name: string }[] }>(
+        `${DRIVE}?${params}`,
+    )
+    const first = res.files?.[0]
+    if (!first) return { status: 'none' }
+    return { status: 'found', sheetId: first.id }
 }

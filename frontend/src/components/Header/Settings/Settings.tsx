@@ -6,6 +6,7 @@ import SiteSettings from './SiteSettings'
 import Data from './Data'
 import { getStoredToken, signIn, signOut } from '../../../lib/authModule'
 // import {  } from '../../../lib/sheets'
+import { silentSignIn } from '../../../lib/authModule'
 
 // import type { SettingsProps } from "../../../types";
 
@@ -20,10 +21,13 @@ const Settings = () => {
         'w-full py-2 px-4 rounded-lg text-sm font-medium transition-colors bg-slate-700 hover:bg-slate-600 text-slate-200'
 
     useEffect(() => {
-        getStoredToken().then((t) => {
-            setIsConnected(!!t)
+        const check = async () => {
+            let token = await getStoredToken()
+            if (!token) token = await silentSignIn()
+            setIsConnected(!!token)
             setIsChecking(false)
-        })
+        }
+        check()
     }, [])
 
     const handleSignIn = async () => {
