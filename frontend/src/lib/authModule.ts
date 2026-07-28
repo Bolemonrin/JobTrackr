@@ -23,6 +23,12 @@ export async function signIn(): Promise<string> {
 
     // Token comes back in the URL *fragment*, not the query string
     const params = new URLSearchParams(new URL(redirectUrl).hash.slice(1))
+
+    // Google reports refusals (access_denied, org policy blocks, …) as an
+    // error param on the redirect — surface it instead of a generic message
+    const oauthError = params.get('error')
+    if (oauthError) throw new Error(`Google refused sign-in: ${oauthError}`)
+
     const accessToken = params.get('access_token')
     const expiresIn = Number(params.get('expires_in') ?? 3600)
     if (!accessToken) throw new Error('No access token in redirect')
@@ -57,4 +63,7 @@ export async function signOut(): Promise<void> {
         ).catch(() => {})
     }
     await chrome.storage.local.remove('authToken')
+    // The sheet belongs to the account that just disconnected; a different
+    // account can't use it, so force re-create/re-link on next sign-in.
+    await chrome.storage.sync.remove('sheetUrl')
 }
