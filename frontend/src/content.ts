@@ -1,11 +1,22 @@
 /** @format */
-import type {
-    JsonLdJobPosting,
-    JsonLdBlock,
-    AppliedFrom,
-    Application,
-} from './types'
+import type { Application, AppliedFrom } from './types'
+import {
+    type JobFields,
+    toAppliedFrom,
+    extractFromJsonLd,
+    extractIndeedSalaryFromDom,
+    extractGlassdoorSalaryFromDom,
+    extractLinkedInPane,
+} from './lib/extractors'
+import { ADAPTERS_ENABLED } from './lib/flags'
+
 const url = new URL(window.location.href)
+
+// Which arm is live — check this in the page console before recording results.
+console.log(
+    `%cJobTrackr: ${ADAPTERS_ENABLED ? 'TIERED (adapters + JSON-LD fallback)' : 'FALLBACK ONLY (adapters disabled)'}`,
+    `color:${ADAPTERS_ENABLED ? '#0a0' : '#c60'};font-weight:bold`,
+)
 
 function injectScript() {
     if (document.querySelector('script[data-jobtrackr-inject]')) return
@@ -17,274 +28,121 @@ function injectScript() {
     ;(document.head || document.documentElement).appendChild(script)
 }
 
-function toAppliedFrom(hostname: string): AppliedFrom {
-    const h = hostname.replace(/^www\./, '')
-    if (h.includes('linkedin.com')) return 'LinkedIn'
-    if (h.includes('indeed.com')) return 'Indeed'
-    if (h.includes('glassdoor.com')) return 'Glassdoor'
-    if (h.includes('handshake.com')) return 'Handshake'
-    return 'Other'
-}
-
-function isJobPosting(node: unknown): node is JsonLdJobPosting {
-    const t = (node as JsonLdBlock)?.['@type']
-    return t === 'JobPosting' || (Array.isArray(t) && t.includes('JobPosting'))
-}
-
-function findJobPosting(parsed: unknown): JsonLdJobPosting | null {
-    // A block may be the JobPosting directly, or wrap it in @graph
-    const block = parsed as JsonLdBlock
-    const nodes = Array.isArray(block['@graph']) ? block['@graph'] : [parsed]
-    return nodes.find(isJobPosting) ?? null
-}
-
-function extractFromJsonLd(sourceName: AppliedFrom = 'Other'): boolean {
-    const scriptTags = document.querySelectorAll(
-        'script[type="application/ld+json"]',
-    )
-
-    const details = Array.from(scriptTags).flatMap((s) => {
-        try {
-            return [JSON.parse(s.innerHTML)]
-        } catch {
-            return []
-        }
-    })
-
-    let jobDetails: JsonLdJobPosting | null = null
-    for (const parsed of details) {
-        const found = findJobPosting(parsed)
-        if (found) {
-            jobDetails = found
-            break
-        }
-    }
-
-    if (!jobDetails) return false // no JobPosting on the page
-
-    // Location: jobLocation may be a single object or an array
-    const locationSource = Array.isArray(jobDetails.jobLocation)
-        ? jobDetails.jobLocation[0]
-        : jobDetails.jobLocation
-    const locationCity = locationSource?.address?.addressLocality ?? ''
-    const locationState = locationSource?.address?.addressRegion ?? ''
-    const location = [locationCity, locationState].filter(Boolean).join(', ')
-
-    // Salary from baseSalary.value (single or range), else regex the description
-    const qv = jobDetails.baseSalary?.value
-    let salary = ''
-    if (qv?.value) {
-        salary = `$${qv.value}${qv.unitText ? ` per ${qv.unitText.toLowerCase()}` : ''}`
-    } else if (qv?.minValue && qv?.maxValue) {
-        salary = `$${qv.minValue} - $${qv.maxValue}${qv.unitText ? ` per ${qv.unitText.toLowerCase()}` : ''}`
-    } else {
-        const patterns = [
-            /\$\d{1,3}(,\d{3})*(\.\d+)?\s*-\s*\$\d{1,3}(,\d{3})*(\.\d+)?/,
-            /\$\d{1,3}(,\d{3})*(\.\d+)?\s*per\s*(year|month|week|day|hour)/i,
-            /\$\d{1,3}(,\d{3})*(\.\d+)?(\/hour)?/,
-            /\b\d{1,3}(,\d{3})*(\.\d+)?\s*(USD|EUR|GBP|CAD|AUD)\b/i,
-        ]
-        const text =
-            new DOMParser().parseFromString(
-                jobDetails.description ?? '',
-                'text/html',
-            ).body.textContent ?? ''
-        for (const pattern of patterns) {
-            const match = text.match(pattern)
-            if (match) {
-                salary = match[0]
-                break
-            }
-        }
-    }
-
-    const jobId =
-        jobDetails.url?.match(/\/jobs\/view\/(\d+)/)?.[1] ??
-        new URL(window.location.href).searchParams.get('currentJobId') ??
-        undefined
-
-    const application: Application = {
+/** Stamp the runtime-only fields onto extracted fields to make an Application. */
+export function toApplication(
+    fields: JobFields,
+    appliedFromName: AppliedFrom,
+): Application {
+    return {
         id: crypto.randomUUID(),
-        jobId,
-        jobTitle: jobDetails.title ?? '',
-        companyName: jobDetails.hiringOrganization?.name ?? '',
-        location,
-        salary,
-        appliedFromName: sourceName,
-        appliedFromUrl: jobDetails.url ?? window.location.href,
+        jobId: fields.jobId,
+        jobTitle: fields.jobTitle,
+        companyName: fields.companyName,
+        location: fields.location,
+        salary: fields.salary,
+        appliedFromName,
+        appliedFromUrl: fields.appliedFromUrl,
         dateApplied: new Date().toISOString(),
         jobStatus: 'applied',
         syncStatus: 'pending',
     }
+}
 
+function save(application: Application, label: string) {
     chrome.storage.local.set({ detectedJob: application }, () => {
-        console.log('JobTrackr: Saved detected job from JSON-LD:', application)
+        console.log(`JobTrackr: Saved detected ${label} job:`, application)
     })
+}
+
+function runJsonLdFallback(sourceName: AppliedFrom = 'Other'): boolean {
+    const fields = extractFromJsonLd(document, window.location.href)
+    if (!fields) return false // no JobPosting on the page
+    save(toApplication(fields, sourceName), 'JSON-LD')
     return true
 }
 
-if (url.hostname.includes('glassdoor.com')) {
+/**
+ * How long to wait for an intercepted payload before giving up on the adapter
+ * and running the generic fallback instead.
+ */
+const ADAPTER_TIMEOUT_MS = 1500
+
+/**
+ * Indeed and Glassdoor both work the same way: inject.js intercepts the site's
+ * own fetch and posts the parsed payload back here; salary is scraped off the
+ * DOM because it is absent from that payload.
+ *
+ * The adapter only fires when the site actually makes that request, which it
+ * does on in-page navigation but NOT on a direct page load, where the posting
+ * is server-rendered. Without a net, those loads extracted nothing at all even
+ * though the page carried perfectly good JSON-LD — so the fallback runs here
+ * on a timer, exactly as it does for any unsupported site.
+ */
+function wireInterceptedSite(
+    siteName: Extract<AppliedFrom, 'Indeed' | 'Glassdoor'>,
+    readSalary: (doc: Document) => string,
+) {
+    injectScript()
+
+    let adapterFired = false
+    const net = window.setTimeout(() => {
+        if (adapterFired) return
+        console.log(`JobTrackr: no ${siteName} payload intercepted, using JSON-LD`)
+        runJsonLdFallback(siteName)
+    }, ADAPTER_TIMEOUT_MS)
+
+    window.addEventListener('message', (event) => {
+        if (event.data?.source !== 'JOB_TRACKR_INJECT') return
+
+        // Adapter won the race. If the net already fired, the richer adapter
+        // result simply overwrites what the fallback stored.
+        adapterFired = true
+        window.clearTimeout(net)
+
+        const { jobTitle, companyName, location, appliedFromUrl, jobId } =
+            event.data
+
+        setTimeout(() => {
+            save(
+                toApplication(
+                    {
+                        jobTitle,
+                        companyName,
+                        location,
+                        salary: readSalary(document),
+                        jobId,
+                        appliedFromUrl,
+                    },
+                    siteName,
+                ),
+                siteName,
+            )
+        }, 300)
+    })
+}
+
+if (ADAPTERS_ENABLED && url.hostname.includes('glassdoor.com')) {
     console.log('Logging from content script on Glassdoor')
-    injectScript()
-
-    window.addEventListener('message', (event) => {
-        if (event.data?.source !== 'JOB_TRACKR_INJECT') return
-
-        const { jobTitle, companyName, location, appliedFromUrl, jobId } =
-            event.data
-
-        setTimeout(() => {
-            let salary = ''
-
-            const salaryContainer = document.querySelector(
-                '#PaySection_salaryRange_F6fsy',
-            )
-
-            if (salaryContainer) {
-                salary = salaryContainer.textContent?.trim() || ''
-            }
-
-            // console.log('Received job data from inject script:', {
-            //     jobTitle,
-            //     companyName,
-            //     location,
-            //     appliedFromUrl,
-            //     jobId,
-            //     salary,
-            // })
-
-            const application = {
-                id: crypto.randomUUID(),
-                jobTitle: jobTitle,
-                companyName: companyName,
-                location: location,
-                salary: salary,
-                appliedFromName: 'Glassdoor',
-                dateApplied: new Date().toISOString(),
-                jobStatus: 'applied',
-                syncStatus: 'pending',
-                appliedFromUrl: appliedFromUrl,
-                jobId: jobId,
-            }
-
-            chrome.storage.local.set({ detectedJob: application }, () => {
-                console.log(
-                    'JobTrackr: Saved detected Glassdoor job:',
-                    application,
-                )
-            })
-        }, 300)
-    })
-} else if (url.hostname.includes('indeed.com')) {
+    wireInterceptedSite('Glassdoor', extractGlassdoorSalaryFromDom)
+} else if (ADAPTERS_ENABLED && url.hostname.includes('indeed.com')) {
     console.log('Logging from content script on Indeed')
-    injectScript()
-
-    // let lastSeenJobId: string | null = null
-    window.addEventListener('message', (event) => {
-        if (event.data?.source !== 'JOB_TRACKR_INJECT') return
-
-        const { jobTitle, companyName, location, appliedFromUrl, jobId } =
-            event.data
-
-        setTimeout(() => {
-            let salary = ''
-
-            const salaryContainer = document.querySelector(
-                '#salaryInfoAndJobType > span.css-1oc7tea.eu4oa1w0',
-            )
-
-            if (salaryContainer) {
-                salary =
-                    salaryContainer.textContent
-                        ?.trim()
-                        .replace(/^From\s+/i, '') || ''
-            }
-
-            const application = {
-                id: crypto.randomUUID(),
-                jobTitle: jobTitle,
-                companyName: companyName,
-                location: location,
-                salary: salary,
-                appliedFromName: 'Indeed',
-                dateApplied: new Date().toISOString(),
-                jobStatus: 'applied',
-                syncStatus: 'pending',
-                appliedFromUrl: appliedFromUrl,
-                jobId: jobId,
-            }
-
-            chrome.storage.local.set({ detectedJob: application }, () => {
-                console.log(
-                    'JobTrackr: Saved detected Indeed job:',
-                    application,
-                )
-            })
-        }, 300)
-    })
-} else if (url.hostname.includes('linkedin.com')) {
+    wireInterceptedSite('Indeed', extractIndeedSalaryFromDom)
+} else if (ADAPTERS_ENABLED && url.hostname.includes('linkedin.com')) {
     console.log('Logging from content script on LinkedIn')
 
-    // for if linkedin is opened in regualr view
+    // for if linkedin is opened in regular view
     if (!document.querySelector('[data-sdui-screen*="JobDetails"]')) {
-        extractFromJsonLd('LinkedIn')
+        console.log('Logging from content script on LinkedIn (regular view)')
+        runJsonLdFallback('LinkedIn')
     } else {
         let lastSavedJobId: string | null = null
         let retryTimer: number | null = null
 
-        // Confirmed pane root: the SDUI job-details screen. Scoping everything to
-        // this keeps the left-list job cards out of the query.
-        const getPane = (): Element | null =>
-            document.querySelector('[data-sdui-screen*="JobDetails"]')
-
-        const extractJob = (): Application | null => {
-            const pane = getPane()
-            if (!pane) return null // pane not rendered yet → caller retries
-
-            // Title + ID from the same /jobs/view/ link (first match in pane)
-            const titleLink = pane.querySelector('a[href*="/jobs/view/"]')
-            const jobTitle =
-                (titleLink as HTMLElement | null)?.innerText?.trim() ?? ''
-            const jobId =
-                titleLink
-                    ?.getAttribute('href')
-                    ?.match(/\/jobs\/view\/(\d+)/)?.[1] ?? null
-
-            // Company is a SEPARATE /company/ link (confirmed returns "BJAK")
-            const companyLink = pane.querySelector('a[href*="/company/"]')
-            const companyName =
-                (companyLink as HTMLElement | null)?.innerText?.trim() ?? ''
-
-            // Core fields missing → not rendered yet, signal a retry
-            if (!jobId || !jobTitle || !companyName) return null
-
-            // Location: first segment of "United States · 1 week ago · ..."
-            const metaText =
-                (
-                    pane.querySelector('span._2da46c2f') as HTMLElement | null
-                )?.innerText?.trim() ?? ''
-            const location = metaText.split('·')[0]?.trim() ?? ''
-
-            return {
-                id: crypto.randomUUID(),
-                jobId,
-                jobTitle,
-                companyName,
-                location,
-                salary: '', // not present in this layout
-                appliedFromName: 'LinkedIn',
-                appliedFromUrl: `https://www.linkedin.com/jobs/view/${jobId}`,
-                dateApplied: new Date().toISOString(),
-                jobStatus: 'applied',
-                syncStatus: 'pending',
-            }
-        }
-
         // Try to extract; retry a few times if the pane hasn't rendered, then stop.
         const attemptExtract = (tries = 6) => {
-            const job = extractJob()
+            const fields = extractLinkedInPane(document, window.location.href)
 
-            if (!job) {
+            if (!fields) {
                 if (tries > 0) {
                     retryTimer = window.setTimeout(
                         () => attemptExtract(tries - 1),
@@ -294,12 +152,10 @@ if (url.hostname.includes('glassdoor.com')) {
                 return
             }
 
-            if (job.jobId === lastSavedJobId) return // already saved this one
+            if (fields.jobId === lastSavedJobId) return // already saved this one
 
-            lastSavedJobId = job.jobId ?? null
-            chrome.storage.local.set({ detectedJob: job }, () => {
-                console.log('JobTrackr: Saved detected LinkedIn job:', job)
-            })
+            lastSavedJobId = fields.jobId ?? null
+            save(toApplication(fields, 'LinkedIn'), 'LinkedIn')
         }
 
         const scheduleExtract = () => {
@@ -323,6 +179,7 @@ if (url.hostname.includes('glassdoor.com')) {
         scheduleExtract()
     }
 } else {
+    // Flag off, or a site with no adapter: the generic fallback is all that runs.
     console.log('Parsing JSON-LD for job details...')
-    extractFromJsonLd(toAppliedFrom(url.hostname))
+    runJsonLdFallback(toAppliedFrom(url.hostname))
 }
