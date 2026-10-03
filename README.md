@@ -118,11 +118,11 @@ frontend/
 
 In the [Google Cloud Console](https://console.cloud.google.com):
 
-1. Enable the **Google Sheets API**
-2. Configure the **OAuth consent screen** and add `https://www.googleapis.com/auth/drive.file` as the only scope
+1. Enable the **Google Sheets API** and the **Google Drive API**
+2. Configure the **OAuth consent screen** (Data Access) with the scopes `https://www.googleapis.com/auth/drive.file` and `https://www.googleapis.com/auth/userinfo.email`
 3. Create an OAuth 2.0 Client ID (**Web application**)
 4. Add an authorized redirect URI — run `chrome.identity.getRedirectURL()` in the extension's console and paste the result (looks like `https://<extension-id>.chromiumapp.org/`)
-5. Put the resulting client ID in `src/lib/auth.ts`
+5. Put the resulting client ID in `src/lib/authModule.ts`
 
 > To keep a stable extension ID between local and published builds, add the published item's public key to `manifest.json` as the `key` field.
 
@@ -131,8 +131,11 @@ In the [Google Cloud Console](https://console.cloud.google.com):
 ```bash
 cd frontend
 npm install
+cp .env.example .env.local   # then paste the OAuth client secret into it
 npm run build
 ```
+
+The client secret lives in `frontend/.env.local` (gitignored) and is inlined into the bundle at build time — the build fails sign-in at runtime without it.
 
 ### 3. Load into Chrome
 
